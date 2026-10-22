@@ -11,6 +11,8 @@ import logging
 import shutil
 import subprocess
 import requests
+import re
+from archive_utils import extract_archive_safely
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 from datetime import datetime
@@ -448,6 +450,8 @@ class YtDlpUpdater(YtDlpVersionManager):
             remote_version = self.get_remote_version_from_github()
             if not remote_version:
                 return False, "无法获取GitHub上的最新版本"
+            if not re.fullmatch(r'\d{4}\.\d{1,2}\.\d{1,2}(?:\.\d+)?', remote_version):
+                return False, "GitHub 返回了无效版本号，已取消更新"
             
             local_version = self.get_local_version()
             if local_version and not VersionComparator.is_newer(remote_version, local_version):
@@ -491,8 +495,7 @@ class YtDlpUpdater(YtDlpVersionManager):
             if os.path.exists(temp_extract_dir):
                 self._remove_path(temp_extract_dir)
             
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_extract_dir)
+            extract_archive_safely(zip_path, temp_extract_dir)
             
             logger.debug(f"解压到临时目录: {temp_extract_dir}")
             

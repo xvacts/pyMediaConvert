@@ -9,6 +9,22 @@ import time
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import stat
+import re
+from importlib.metadata import version as package_version
+from archive_utils import extract_archive_safely
+
+
+def get_ytdlp_archive_url():
+    """Use the installed release instead of silently overriding it with master."""
+    version = package_version('yt-dlp')
+    match = re.fullmatch(r'(\d{4})\.(\d{1,2})\.(\d{1,2})', version)
+    if not match:
+        raise ValueError('Builds require a stable yt-dlp release version')
+    year, month, day = map(int, match.groups())
+    from datetime import date
+    date(year, month, day)
+    tag = f'{year:04d}.{month:02d}.{day:02d}'
+    return f'https://github.com/yt-dlp/yt-dlp/archive/refs/tags/{tag}.zip'
 
 def get_platform_info():
     os_name = platform.system().lower()
@@ -64,12 +80,7 @@ def download_file(url, dest_path):
 
 def extract_archive(archive_path, extract_to):
     print(f"Extracting {archive_path}...")
-    if archive_path.endswith('.zip'):
-        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_to)
-    elif archive_path.endswith(('.tar.gz', '.tgz', '.tar.xz')):
-        with tarfile.open(archive_path, 'r:*') as tar_ref:
-            tar_ref.extractall(extract_to)
+    extract_archive_safely(archive_path, extract_to)
     print(f"Extracted to {extract_to}")
 
 def make_executable(path):
@@ -102,7 +113,7 @@ def setup_binaries():
                 'x86_64': 'https://evermeet.cx/ffmpeg/ffprobe-8.1.zip',
             }
         },
-        'yt-dlp': 'https://github.com/yt-dlp/yt-dlp/archive/refs/heads/master.zip'
+        'yt-dlp': get_ytdlp_archive_url()
     }
 
     temp_dir = os.path.join(root_dir, 'temp_downloads')

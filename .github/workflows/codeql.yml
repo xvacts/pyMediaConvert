@@ -2,11 +2,12 @@ name: "CodeQL Security Scan"
 
 on:
   push:
-    branches: [ "main", "1.13" ]
+    branches: [ "main", "1.13", "codex/security-audit-20261023" ]
   pull_request:
     branches: [ "main", "1.13" ]
   schedule:
     - cron: '37 20 * * 5'
+  workflow_dispatch:
 
 jobs:
   analyze:
@@ -25,17 +26,19 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
+      uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
       with:
         languages: ${{ matrix.language }}
         
     - name: Autobuild
-      uses: github/codeql-action/autobuild@v4
+      uses: github/codeql-action/autobuild@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
+      uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
       with:
         category: "/language:${{matrix.language}}"
