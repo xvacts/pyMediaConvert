@@ -1,0 +1,219 @@
+pyMediaConvert 安全审核与本地修复报告
+日期：2026-10-23（Asia/Tokyo）
+源仓库：https://github.com/xvacts/pyMediaConvert
+审核提交：3cfcc0c2f2542b8d847ca83cd762a237e85f9810
+本地目录：C:\Users\XV\Documents\ChatGPT\测试\pyMediaConvert-audit
+分支：codex/security-audit-20261023
+
+修复位于上述安全分支；提交与推送状态以 GitHub 分支和 Actions 运行记录为准。
+公开仓库和 Git 历史中的疑似 ElevenLabs 凭据仍须由所有者立即作废/轮换。
+没有使用该凭据调用服务，没有在本报告、工具输出或测试中展示其原文。
+应所有者后续要求，新增 Security Regression Checks 工作流，并让 CodeQL 在本安全分支推送时运行；
+保留安装包发布的现有标签触发方式，不通过推送安全分支自动发布安装包。
+
+1. 项目概况与范围
+
+Python / PySide6 桌面媒体工具，调用 FFmpeg/ffprobe、yt-dlp、ElevenLabs、Groq 和 Gladia。
+原始跟踪文件 878 个，以图片/字体等 assets 为主；Python 约 15,768 行。
+依赖声明为 requirements.txt（pip），6 个直接包，全部未限定版本，无锁文件。
+GitHub Actions 分别运行 CodeQL、Nuitka 和 PyInstaller 发布；支持 Windows/macOS。
+仓库规范：读取并遵循 .agent/skills/coding-standards/SKILL.md，保留核心处理与 UI 分工。
+
+执行全库文件枚举、当前文本密钥模式检查、所有跟踪 Python 文件 AST 语法/危险调用扫描，
+对安装/更新、归档解压、网络与凭据、子进程/FFmpeg、配置、关键 UI、CI 与测试进行重点人工复核。
+检查已发现凭据所在文件的可达 Git 历史。并非对所有历史对象做完整取证，也没有逐像素检查资源。
+未执行真实云 API、未下载/运行仓库安装脚本所取的 FFmpeg 二进制，未完成原生打包或平台动态渗透。
+
+2. 问题汇总
+
+位置说明：“原”指审核提交，“现”指本地修复文件。归档/来源问题不等于已经发生供应链攻击。
+
+编号 | 类别 | 严重级别 | 原位置 | 状态
+A01 | 密钥 | High | tests/import requests.py:6 | 本地代码已修复；待所有者作废/轮换
+A02 | 代码 | Medium | install_dependencies.py:65；core/ytdlp_updater.py:495 | 已修复/防御加固
+A03 | 代码 | Medium | core/gladia_transcription.py:282、294 | 已修复
+A04 | 代码 | Medium | core/gladia_transcription.py:234、236、279 | 已修复
+A05 | 代码 | Medium | core/update.py:3 | 已按开发者决定修复
+A06 | 代码 | Medium | .github/workflows/*.yml 的 uses/permissions | 已修复
+A07 | 代码 | Low | .github/workflows/release*.yml 版本提取及插值 | 已修复/防御加固
+A08 | 依赖 | Medium | install_dependencies.py 的 master.zip 来源 | 已按开发者决定修复
+A09 | 依赖 | Medium | install_dependencies.py 下载；core/ytdlp_updater.py:478 | 建议关注：完整性/发布策略待完善
+A10 | 密钥 | Medium | ui/settings_dialog.py:116-120；ui/elevenlabs_ui.py:787 | 开发者已决定本轮保留，后续迁移
+A11 | 依赖 | Low | requirements.txt | 建议关注：无版本约束、老包与发布清单缺失
+
+“core/”与“ui/”均位于 pyMediaTools/ 下。没有确认的 Critical。
+A01 的 Key 是否仍有效：待确认；若有效，公开内容可以被第三方用于消耗额度/调用账户能力。
+本轮不将条件性风险、历史版本公告或普通桌面应用的用户自主路径选择夸大为已证实远程 RCE。
+
+3. 每项修复的原因、利用条件与改动
+
+A01：提交了疑似真实 API Key。
+原 tests/import requests.py 的 xi-api-key 是 64 字符常量；不是空模板或 test_key 示例。
+无需本机权限即可从公开代码读取；已确认该值还存在于该文件的一次历史修订中。
+未做联网有效性测试，不能断言当前有效或已经被滥用。
+改动：脚本只从 ELEVENLABS_API_KEY 环境变量读取；导入不再产生网络请求；只在显式执行 main 时查询。
+请求禁止自动重定向，并先检查成功状态再输出 models.json，避免旧代码失败时使用未定义 data。
+补充无值 .env.example、忽略 .env.*（保留 example）和审计虚拟环境。
+手动脚本不会自动加载 .env，运行前应设置进程环境变量。
+必须到 ElevenLabs 撤销/重建；删除代码或清理 Git 历史不能代替撤销。
+历史清理需要与协作者协调，不擅自重写仓库或强制推送。
+
+A02：下载归档缺少统一成员边界和资源限制。
+原安装器对 TAR 使用 extractall，未拒绝 ../、绝对路径、符号链接、硬链接、设备节点等，
+使用恶意 TAR 时存在目录外写入风险；当前启用的下载配置主要使用 ZIP，TAR 路径属于潜在支持面。
+Python ZipFile.extractall 本身会规范化部分路径，因此没有把所有 ZIP 的 ../ 都宣称为已证实穿越。
+ZIP 仍缺少明确的跨平台成员类型/名称、已有符号链接及解包资源限制。
+改动：新增纯标准库 archive_utils.py，安装器和 yt-dlp 更新器共用；先验证全部成员再写入，
+拒绝危险路径、Windows 驱动器/ADS/保留名、归档链接/特殊文件及指向链接的目标；
+限制 50,000 个成员和 4 GiB 声明解包大小；TAR 权限不保留 setuid/setgid。
+正常 ZIP/TAR 与攻击样例均有测试。目标目录应由当前应用持有；不承诺抵御本机攻击者并发改链接。
+更新器另校验远程版本号为受支持日期格式，避免远程元数据进入下载/清理路径时携带路径语法。
+
+A03：Gladia 轮询凭据发送目标未校验。
+条件：API result_url 元数据异常/被控制，或服务返回跨源重定向；原代码会向该地址发 x-gladia-key，
+Requests 对自定义凭据头不能假定具有 Authorization 头相同的跨源保护。
+这不是普通用户可以从任意网页直接利用的服务器 SSRF，应用在用户桌面运行且原请求启用 TLS。
+改动：result_url 只允许 https://api.gladia.io，默认或 443 端口，无用户信息、控制字符、片段。
+提交结果及轮询入口均验证；上传、提交、轮询均禁止自动重定向，非成功状态明确报错。
+已对外域/相似域、HTTP、异常端口、userinfo、换行、302 和成功响应测试。
+官方接口示例支持该 origin：https://docs.gladia.io/api-reference/v2/pre-recorded/init
+
+A04：日志记录可能携带访问能力的音频 URL 和原始响应内容。
+条件：共享日志/报错信息，且 API 返回的 URL 带签名、对象标识或其他敏感内容；原日志直接输出 URL。
+改动：成功日志只记录事件；失败不再拼接响应正文/完整 JSON，仍保留 HTTP 状态供定位。
+与 A03 一并验证，不声称清除了程序所有业务文本日志；主动开启的调试响应缓存仍需用户妥善保管。
+
+A05：更新检查指向另一个仓库。
+旧默认为 secure-artifacts/pyMediaTools。UI 随后可能让用户下载该仓库返回的安装包。
+这未证明上游恶意，但使当前 fork 用户的更新信任对象与预期不同。
+开发者已明确选择当前仓库；现改为 xvacts/pyMediaConvert，并加入精确请求来源测试。
+没有推断当前仓库存在完整发布包，也没有自动下载/执行安装包。
+
+A06/A07：工作流供应链与权限加固。
+原 Actions 仅以可移动 vN 标签引用；构建作业继承 contents/id-token/attestations 写权限。
+如果 Action 标签被替换或构建依赖遭入侵，影响面可能扩展到发布能力。
+改动：将现有同主版本的 7 个 Action 仓库引用固定到 git ls-remote 核实的真实提交；
+注释保留 vN，未进行 Action 主版本升级。checkout 不持久化凭据；
+发布工作流默认 contents:read，仅 release 作业保留所需写权限。
+发布版本从 tag 读取后验证格式，才写入 GITHUB_ENV/被 Bash 或 PowerShell 代码引用。
+PyInstaller 的 a 前缀同时正确剥离。正常数字版本和常见 prerelease 后缀仍支持。
+没有 pull_request_target 工作流，也未确认无权限 PR 可直接利用版本插值；按纵深防御评级。
+验证：3 份工作流 YAML 可解析，所有 uses 都是 40 位提交固定；完整 Actions 运行尚待确认。
+
+A08：构建额外获取 master 源码覆盖 pip 依赖。
+requirements 安装与动态源码打包原来可能使用完全不同版本；仅检查 pip 版本无法覆盖实际发布内容。
+开发者选择正式标签后，安装器现在从已安装 yt-dlp 元数据计算正式日期标签，正确补齐月/日前导零。
+非正式/dev 或无效日期显式失败，不悄悄退回 master；5 个附加测试覆盖该选择。
+标签固定不等于签名/独立哈希验证，后者仍是 A09。
+
+4. 直接和关键间接依赖实际版本
+
+原 requirements.txt 只声明包名，无法确定此前某次发布使用的版本。
+下表是本次 Windows / Python 3.10.11 独立环境于 2026-10-23 新解析得到的版本，
+不是旧安装包清单，也不是给项目强制引入的主版本升级。README/CI 建议使用 Python 3.12，需在其上复核。
+
+直接：
+Requests/requests 2.34.2
+yt_dlp/yt-dlp 2026.10.21
+PySide6 6.12.0
+pysrt 1.1.2
+toml 0.10.2
+opencv-python 5.0.0.93
+
+间接（本环境的运行依赖闭包 12 个）：
+certifi 2026.10.19；chardet 7.7.0；charset-normalizer 3.5.2；idna 3.20；numpy 2.2.6；
+pyside6-addons 6.12.0；pyside6-essentials 6.12.0；pyside6-pdf 6.12.0.140；
+pyside6-webengine 6.12.0.140；shiboken6 6.12.0；tomli 2.5.0；urllib3 2.8.0。
+其中 tomli 由测试机器低于 Python 3.11 的环境条件引入；实际 3.12 依赖集合可能不同。
+全部版本与环境另存 dependency-versions.json、requirements-audit-snapshot.txt。
+这些是审计证据，不能直接当作跨 Windows/macOS 的生产锁文件。
+
+FFmpeg/ffprobe 是额外下载的本机二进制，不在 pip 闭包内；Windows 使用 latest 资源，
+macOS URL 含 ffmpeg/ffprobe-8.1.zip。没有下载实际二进制验证其内部版本/哈希，状态待确认。
+Nuitka、PyInstaller、NSIS/choco、GitHub-hosted runner 也没有形成完整固定的构建工具链清单。
+
+5. 已知依赖漏洞核查与实际功能使用
+
+已按 6 个直接包分别查询官方安全信息/GHSA/PyPI，并查阅 Qt/OpenCV 的官方安全资料。
+执行 pip-audit 2.10.1，先核对独立环境，再针对上述 18 个运行包的精确版本独立查询：
+python -m pip_audit --no-deps --disable-pip -r requirements-audit-snapshot.txt --format json --output dependency-audit.json
+结果：No known vulnerabilities found。--no-deps 不做额外解析，输入已经包含当前环境依赖闭包。
+该结果不覆盖所有 Qt 原生组件、FFmpeg、历史二进制、未发布漏洞或操作系统组件。
+
+已核实的历史公告示例：
+- Requests GHSA-9hjg-9r4m-mvj7：<2.32.4 的恶意 URL/.netrc 凭据泄露；修复 2.32.4。
+  当前 2.34.2 不在此范围，项目确实调用 Requests，但未因此断言旧包已经遭利用。
+  https://github.com/psf/requests/security/advisories/GHSA-9hjg-9r4m-mvj7
+- yt-dlp GHSA-vx4q-3cr2-7cg2（High）：<2026.06.09，aria2c manifest 下载可导致代码执行；
+  修复 >=2026.06.09。当前下载器没有配置 aria2c external_downloader，安装器 aria2 段落是注释。
+  当前 2026.10.21 不在此范围，不将其作为当前已确认可达 High 漏洞。
+  https://github.com/yt-dlp/yt-dlp/security/advisories/GHSA-vx4q-3cr2-7cg2
+- yt-dlp GHSA-6v4j-43gg-vj32（High）：<2026.7.4 的 --write-link 文件下游命令注入；
+  修复 2026.7.4。本项目未启用 --write-link；当前解析版本也不在受影响范围。
+  https://github.com/yt-dlp/yt-dlp/security/advisories/GHSA-6v4j-43gg-vj32
+
+pysrt 1.1.2 与 toml 0.10.2 的正式版本长期无更新，应关注维护/兼容性；
+未依据“很久没发版”断言维护者宣布停止支持，也未发现可确认的仿冒包名。
+Requests 的大小写属于正常包名规范化。PySide6/Qt 与 OpenCV 的原生库风险需结合实际发布版本追踪。
+https://pypi.org/project/pysrt/
+https://pypi.org/project/toml/
+https://wiki.qt.io/List_of_known_vulnerabilities_in_Qt_products
+https://github.com/opencv/opencv/security
+
+6. 保留风险与需要取舍的事项
+
+A09：下载可执行文件/源码尚无独立可信哈希或签名验证，FFmpeg Windows 仍是 latest。
+利用前提包括上游发布/账户、信任链或实际下载内容被控制；并未发现本次下载已被篡改的证据。
+方案：维护经审核的版本+平台+SHA256 清单，或验证可信发布证明/签名，再将下载与原子替换绑定。
+建议作为发布流程变更实施，并同时固化依赖锁和二进制清单。本轮没有编造哈希或移除更新功能。
+当前解压器的资源上限不限制网络下载总大小；断网/磁盘满/替换中断还需恢复与并发更新测试。
+
+A10：多个 API Key 被保存到 QSettings（Windows 注册表/平台设置存储），配置 TOML 也支持密钥字段。
+有本机用户/备份访问权限的代码可能读取；密码输入框不等于加密保存。
+开发者明确选择本轮保留保存功能、记录风险，后续单独迁移系统凭据库。
+建议用 Windows Credential Manager/macOS Keychain 等，并设计迁移成功后删除旧值和失败恢复。
+没有擅自新增凭据库依赖、删除用户配置或把自造加密当作保护。
+
+A11：无版本约束和锁文件，包管理器可能解析到新的主版本；新安装可复现性不足。
+当前审计环境 OpenCV 已解析为 5.x，不能把测试环境选择等同于生产批准的大版本升级。
+建议分别为支持的平台/Python 生成锁与哈希，在兼容性通过后再采用；本轮未重写 requirements.txt。
+
+媒体/字幕/字体均会送入原生解析库；本次没有 fuzzing 或沙箱验证。
+子进程重点调用使用参数列表或 QProcess.start(program,args)，扫描未发现 shell=True、
+os.system、eval/exec、pickle.load 或不安全 yaml.load 的活动调用；这不等于 FFmpeg 输入格式绝对安全。
+本项目不是 Web 服务，没有 SQL/NoSQL、服务端鉴权、Cookie 会话、CORS、CSRF、Electron IPC 等接口；
+没有将用户主动选择本机文件路径或下载 URL 本身认定为服务器路径穿越/SSRF。
+
+7. 测试与验证
+
+新增 tests/test_security_boundaries.py：32 项全部通过，使用临时文件和模拟请求，不调用真实云 API。
+覆盖危险归档路径、TAR links/devices/FIFO、ZIP symlink、解包上限、正常 ZIP/TAR、
+Gladia 来源/302/成功、手动脚本导入无请求、更新来源、异常版本与正式构建标签。
+所有项目 Python 模块可 AST 解析；3 份工作流 YAML 和 Action 固定规则通过；git diff --check 通过。
+
+现有测试并非全绿，不能宣称完整项目测试通过：
+- 全量收集时，test_backup_improvements.py 因硬编码开发机路径/顶层旧导入失败；
+  test_rembg_optimization.py 导入了已整体注释掉的 RembgProcessor，收集失败。
+- 排除这两个文件及 5 个依赖远端/综合调用的测试后：原始 HEAD 基线 30 通过、9 失败；
+  本地修复版最终为 62 通过、9 失败、5 项未选择，失败项与原始基线完全一致。
+- 9 个基线失败：2 个缺少 FFmpeg；4 个字幕分段断言；1 个翻译批次断言；
+  1 个 macOS app 路径断言；1 个缺少 yt_dlp 源码触发 None 版本比较。
+  原提交导出目录以同一 Python 环境重现了相同 9 个失败，本轮没有改动相应业务逻辑来掩盖它们。
+- 部分手动测试以 return bool 代替 assert，有 pytest 警告，失败可能被误当通过；需后续修复测试设计。
+最终离线测试命令：
+python -m pytest tests --ignore=tests/test_backup_improvements.py --ignore=tests/test_rembg_optimization.py
+  -k "not remote and not release_info and not comprehensive and not check_update" --tb=no --disable-warnings -q
+运行前设置 QT_QPA_PLATFORM=offscreen。新增安全测试也已单独执行并确认 32 passed。
+README/CI 目标 Python 3.12，本机仅检测到 Python 3.10.11；完整 3.12、Windows/macOS 打包和 UI
+端到端验证仍待确认，未执行 NSIS、Nuitka、PyInstaller 或未校验的二进制下载脚本。
+
+8. 密钥检查与版本控制说明
+
+当前文本和 AST 常量扫描未找到除 A01 之外的可确认真实硬编码密钥；A01 已在本地脚本替换。
+config.toml 中 API Key 值为空，不是泄露。测试中的 test_key、env_key 等是测试数据。
+.env 原已忽略，现补充 .env.* 并允许无值 example；已用 git check-ignore 核对。
+未发现跟踪中的真实 .env 文件；检查过当前树及 A01 文件历史，未声称对所有历史秘密完成取证。
+如果后续发现其他已提交密钥，同样必须平台撤销/轮换，不能仅删代码。
+
+优先顺序：立即撤销 A01 并检查服务调用记录；审阅并合入本地修复；在支持的平台/Python 下恢复
+现有测试基线；随后完善发布完整性/依赖锁，按已确认计划迁移系统凭据库。

@@ -1,17 +1,26 @@
-import requests
+"""Manual ElevenLabs model query. Set ELEVENLABS_API_KEY before running."""
 import json
-
-url = "https://api.elevenlabs.io/v1/models"
-headers = {
-    "xi-api-key": "a4d2617793e30be3eb0337930fa6d9a45a15a2cf0a46270b13d5ab94530030b5",
-    "Accept": "application/json"
-}
-response = requests.get(url, headers=headers, timeout=15)
-if response.status_code == 200:
-    data = response.json()
-    models_list = []
-with open("models.json", "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=4)
+import os
+from pathlib import Path
+import requests
 
 
-    
+def main():
+    key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    if not key:
+        raise SystemExit("Set ELEVENLABS_API_KEY in the environment first")
+    response = requests.get(
+        "https://api.elevenlabs.io/v1/models",
+        headers={"xi-api-key": key, "Accept": "application/json"},
+        timeout=15,
+        allow_redirects=False,
+    )
+    if response.status_code != 200:
+        raise SystemExit(f"ElevenLabs request failed: HTTP {response.status_code}")
+    Path("models.json").write_text(
+        json.dumps(response.json(), ensure_ascii=False, indent=4), encoding="utf-8"
+    )
+
+
+if __name__ == "__main__":
+    main()

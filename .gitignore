@@ -7,6 +7,9 @@ venv/
 .venv/
 env/
 .env
+.env.*
+!.env.example
+.venv-audit/
 
 # 排除 src/bin 目录（编译/生成的文件）
 bin/

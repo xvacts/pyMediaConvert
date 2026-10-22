@@ -23,6 +23,7 @@ import time
 import subprocess
 import tempfile
 import requests
+from urllib.parse import urlsplit
 from difflib import SequenceMatcher
 from pathlib import Path
 from ..logging_config import get_logger
@@ -224,17 +225,17 @@ def _gladia_upload_audio(wav_path: str, api_key: str) -> str:
     }
     with open(wav_path, "rb") as f:
         files = {"audio": (os.path.basename(wav_path), f, "audio/wav")}
-        response = requests.post(GLADIA_UPLOAD_URL, headers=headers, files=files, timeout=120)
+        response = requests.post(GLADIA_UPLOAD_URL, headers=headers, files=files, timeout=120, allow_redirects=False)
 
     if response.status_code not in (200, 201):
-        raise RuntimeError(f"Gladia 上传失败 ({response.status_code}): {response.text[:500]}")
+        raise RuntimeError(f"Gladia 上传失败 (HTTP {response.status_code})")
 
     data = response.json()
     audio_url = data.get("audio_url") or data.get("url")
     if not audio_url:
-        raise RuntimeError(f"Gladia 上传响应中未找到 audio_url: {data}")
+        raise RuntimeError("Gladia 上传响应中未找到 audio_url")
 
-    logger.info(f"Gladia 音频上传成功: {audio_url}")
+    logger.info("Gladia 音频上传成功")
     return audio_url
 
 
@@ -265,18 +266,34 @@ def _gladia_submit_transcription(audio_url: str, api_key: str, language: str = "
             "code_switching": False,
         }
 
-    response = requests.post(GLADIA_TRANSCRIPTION_URL, headers=headers, json=body, timeout=60)
+    response = requests.post(GLADIA_TRANSCRIPTION_URL, headers=headers, json=body, timeout=60, allow_redirects=False)
 
     if response.status_code not in (200, 201):
-        raise RuntimeError(f"Gladia 提交转录失败 ({response.status_code}): {response.text[:500]}")
+        raise RuntimeError(f"Gladia 提交转录失败 (HTTP {response.status_code})")
 
     data = response.json()
     result_url = data.get("result_url")
     if not result_url:
-        raise RuntimeError(f"Gladia 转录响应中未找到 result_url: {data}")
+        raise RuntimeError("Gladia 转录响应中未找到 result_url")
 
-    logger.info(f"Gladia 转录任务已提交，轮询地址: {result_url}")
+    _validate_gladia_result_url(result_url)
+    logger.info("Gladia 转录任务已提交")
     return result_url
+
+
+def _validate_gladia_result_url(url):
+    """Never send x-gladia-key to an origin chosen by response metadata."""
+    try:
+        if not isinstance(url, str) or any(ord(char) <= 32 for char in url):
+            raise ValueError()
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'https' or parsed.hostname != 'api.gladia.io' or
+                parsed.port not in (None, 443) or parsed.username is not None or
+                parsed.password is not None or parsed.fragment):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError('Gladia 返回了不受信任的轮询地址') from None
+    return url
 
 
 def _gladia_poll_result(result_url: str, api_key: str, progress_callback=None, timeout: int = 600) -> dict:
@@ -286,14 +303,15 @@ def _gladia_poll_result(result_url: str, api_key: str, progress_callback=None, t
     Returns:
         Gladia 响应完整 JSON
     """
+    _validate_gladia_result_url(result_url)
     headers = {"x-gladia-key": api_key}
     deadline = time.time() + timeout
     poll_interval = 3
 
     while time.time() < deadline:
-        response = requests.get(result_url, headers=headers, timeout=30)
+        response = requests.get(result_url, headers=headers, timeout=30, allow_redirects=False)
         if response.status_code != 200:
-            raise RuntimeError(f"Gladia 轮询失败 ({response.status_code}): {response.text[:300]}")
+            raise RuntimeError(f"Gladia 轮询失败 (HTTP {response.status_code})")
 
         data = response.json()
         status = data.get("status", "")

@@ -6,9 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -34,10 +32,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -53,7 +53,11 @@ jobs:
         shell: bash
         run: |
           # 将 v1.13.5 转换为 1.13.5
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${GITHUB_REF_NAME#[av]}
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z-]+)*$ ]]; then
+            echo "Invalid release version" >&2
+            exit 1
+          fi
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
           echo "BASENAME=MediaTools-v$VERSION-${{ matrix.platform_tag }}" >> $GITHUB_ENV
 
@@ -142,7 +146,7 @@ jobs:
 
       # --- 新增：上传产物 ---
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: artifacts-${{ matrix.platform_tag }}
           path: out/*
@@ -157,19 +161,19 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           # 不指定 name 会下载所有 artifact
           path: release-dist
           merge-multiple: true
 
       - name: Generate Artifact Attestation
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: 'release-dist/*'
 
       - name: Create Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           # 修正：添加了 .dmg 并确保路径正确
           files: |
