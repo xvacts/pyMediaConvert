@@ -1,6 +1,6 @@
 # pyMediaTools - 智能媒体处理与创作工具箱
 
-[![Version](https://img.shields.io/badge/version-v1.15.0-blue.svg)](https://github.com/your-repo/pyMediaTools/releases)
+[![Version](https://img.shields.io/badge/version-v1.16.5-blue.svg)](https://github.com/xvacts/pyMediaConvert/releases)
 [![Python](https://img.shields.io/badge/python-3.12-green.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)]()
 [![License](https://img.shields.io/badge/license-LGPL%2FGPL-orange.svg)](LICENSE)
